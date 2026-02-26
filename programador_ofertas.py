@@ -89,7 +89,7 @@ else:
     with col_busca:
         with st.container(border=True):
             st.markdown("#### 🔍 Consulta de Contrato")
-            contrato_input = st.text_input("Número do Asset (Contrato):", placeholder="Ex: 123456").strip()
+            contrato_input = st.text_input("Número do Item (Contrato):", placeholder="Ex: 123456").strip()
             # type="primary" deixa o botão azul e em destaque
             buscar = st.button("Verificar Elegibilidade", type="primary", use_container_width=True)
 
@@ -146,4 +146,5 @@ else:
                         
                         # Mostra os motivos em uma caixa de aviso amarela limpa
                         motivos_formatados = "\n".join([f"- {m}" for m in motivos])
+
                         st.warning(f"**Motivos do bloqueio:**\n{motivos_formatados}\n\n⚠️ **É necessário seguir o fluxo de retenção por argumentação.**")
