@@ -134,7 +134,7 @@ else:
 
                         with st.container(border=True):
                             # Cabeçalho do Card
-                            st.markdown(f"#### 📄 Contrato: {contrato} | {nome_cliente}")
+                            st.markdown(f"#### 📄 Nº Item do Contrato: {contrato} | {nome_cliente}")
                             st.caption(f"**Doc:** {documento} &nbsp; | &nbsp; 📍 **Endereço:** {endereco_completo}")
                             
                             # Dados para cálculos
