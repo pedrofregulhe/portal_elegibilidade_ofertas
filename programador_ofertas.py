@@ -7,8 +7,14 @@ from simple_salesforce import Salesforce
 # ==========================================
 # 0. CONSTANTES 
 # ==========================================
-# Objeto correto no Salesforce
 OBJETO_SALESFORCE = "Asset" 
+
+LISTA_ORIGENS = [
+    "Call Center", "Chat", "Chat BOT", "Cobrança", "Consumidor.gov", 
+    "Email Corporativo", "Ilha de Retenção", "Interno", "Mídias", 
+    "NPS", "Portal", "Procon", "RAF", "Reclame Aqui", "Técnico", 
+    "URA Ativa", "URA Receptiva", "Vendas", "Whatsapp", "Whatsapp BOT"
+]
 
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -20,9 +26,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==========================================
-# 2. ESTILOS CSS CUSTOMIZADOS
-# ==========================================
 estilo_customizado = """
     <style>
     #MainMenu {visibility: hidden;}
@@ -40,7 +43,6 @@ st.markdown(estilo_customizado, unsafe_allow_html=True)
 # ==========================================
 @st.cache_resource
 def iniciar_conexao_sf():
-    """Inicia a conexão com o Salesforce de forma segura usando st.secrets"""
     try:
         sf = Salesforce(
             username=st.secrets["salesforce"]["username"],
@@ -50,11 +52,10 @@ def iniciar_conexao_sf():
         )
         return sf
     except Exception as e:
-        st.error(f"Erro ao conectar no Salesforce: Verifique as credenciais no st.secrets. Detalhe: {e}")
+        st.error(f"Erro ao conectar no Salesforce: {e}")
         return None
 
 def formatar_mascara_doc(termo_limpo):
-    """Aplica a máscara padrão de CPF ou CNPJ baseada no tamanho."""
     if len(termo_limpo) == 11:
         return f"{termo_limpo[:3]}.{termo_limpo[3:6]}.{termo_limpo[6:9]}-{termo_limpo[9:]}"
     elif len(termo_limpo) == 14:
@@ -62,8 +63,6 @@ def formatar_mascara_doc(termo_limpo):
     return termo_limpo
 
 def buscar_cliente_sf(sf, termo_busca):
-    """Faz a query no Salesforce considerando as variações de digitação."""
-    
     termo_limpo = re.sub(r'[^0-9]', '', termo_busca)
     
     if not termo_limpo:
@@ -71,9 +70,10 @@ def buscar_cliente_sf(sf, termo_busca):
 
     doc_mascarado = formatar_mascara_doc(termo_limpo)
     
+    # Adicionado o campo 'Id' na query para capturar o ID único do Item no Salesforce
     query = f"""
         SELECT 
-            FOZ_CodigoItem__c, SerialNumber, Status, Name, AccountId, InstallDate, 
+            Id, FOZ_CodigoItem__c, SerialNumber, Status, Name, AccountId, InstallDate, 
             FOZ_Contrato_Anterior__c, FOZ_EndFranquiaForm__c, FOZ_ValorTotal__c, 
             FOZ_Periodo_de_Desconto_Restante__c, 
             Account.Name, Account.CNPJ__c, 
@@ -96,7 +96,6 @@ def buscar_cliente_sf(sf, termo_busca):
         
         if 'InstallDate' in df.columns:
             df['InstallDate'] = pd.to_datetime(df['InstallDate'], errors='coerce')
-            
         if 'FOZ_Periodo_de_Desconto_Restante__c' in df.columns:
             df['FOZ_Periodo_de_Desconto_Restante__c'] = pd.to_numeric(df['FOZ_Periodo_de_Desconto_Restante__c'], errors='coerce').fillna(0)
             
@@ -106,7 +105,6 @@ def buscar_cliente_sf(sf, termo_busca):
         return pd.DataFrame()
 
 def formatar_endereco(row):
-    """Monta o endereço de forma segura com os dados da API."""
     partes = []
     logradouro = str(row.get('FOZ_EnderecoEntrega__r.FOZ_Logradouro__c', ''))
     compl = str(row.get('FOZ_EnderecoEntrega__r.EndCompl__c', ''))
@@ -119,14 +117,55 @@ def formatar_endereco(row):
             partes.append(p)
             
     endereco_base = ", ".join(partes)
-    
     if cidade and uf and cidade.lower() != 'nan' and uf.lower() != 'nan':
         endereco_base += f" - {cidade}/{uf}"
     
     return endereco_base if endereco_base else "Endereço não informado"
 
+def obter_primeiro_contato(sf, account_id):
+    """Busca o primeiro contato atrelado à Conta do cliente."""
+    try:
+        query = f"SELECT Id FROM Contact WHERE AccountId = '{account_id}' LIMIT 1"
+        res = sf.query(query)
+        if res['totalSize'] > 0:
+            return res['records'][0]['Id']
+        return None
+    except:
+        return None
+
+def criar_oa_excecao(sf, account_id, asset_id, origin, comentarios):
+    """Cria o Caso (OA) e vincula o comentário."""
+    contact_id = obter_primeiro_contato(sf, account_id)
+    
+    dados_caso = {
+        'AccountId': account_id,
+        'AssetId': asset_id,
+        'Origin': origin,
+        'Type': 'OA',
+        'FOZ_TipoSolicitacao__c': 'DESCONTO'
+    }
+    
+    if contact_id:
+        dados_caso['ContactId'] = contact_id
+
+    try:
+        # 1. Cria a OA (Case)
+        novo_caso = sf.Case.create(dados_caso)
+        case_id = novo_caso.get('id')
+
+        # 2. Cria os comentários (CaseComment)
+        if comentarios and comentarios.strip():
+            sf.CaseComment.create({
+                'ParentId': case_id,
+                'CommentBody': comentarios
+            })
+            
+        return True, case_id
+    except Exception as e:
+        return False, str(e)
+
 # ==========================================
-# 4. INTERFACE VISUAL (CABEÇALHO)
+# 4. INTERFACE VISUAL
 # ==========================================
 st.markdown('<div class="titulo-painel">📞 Portal de Elegibilidade de Ofertas</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitulo-painel">Verificação rápida e online (Salesforce) para retenção</div>', unsafe_allow_html=True)
@@ -135,7 +174,7 @@ st.divider()
 sf_conexao = iniciar_conexao_sf()
 
 if not sf_conexao:
-    st.warning("⚠️ Aguardando configuração das credenciais no Streamlit Cloud (Secrets) para conectar ao Salesforce.")
+    st.warning("⚠️ Aguardando configuração das credenciais no Streamlit Cloud.")
     st.stop() 
 
 # ==========================================
@@ -207,12 +246,34 @@ with col_resultado:
                             st.error("⛔ **Cliente NÃO Elegível para Ofertas de Retenção.**")
                             
                             motivos = []
-                            if not trava_tempo:
-                                motivos.append("Tempo de contrato inferior a 90 dias.")
-                            if not trava_valor:
-                                motivos.append("Valor da mensalidade não atinge o mínimo de R$ 70,00.")
-                            if not trava_oferta_ativa:
-                                motivos.append(f"Cliente já possui oferta ativa ({int(meses_desconto)} meses restantes).")
+                            if not trava_tempo: motivos.append("Tempo de contrato inferior a 90 dias.")
+                            if not trava_valor: motivos.append("Valor da mensalidade não atinge o mínimo de R$ 70,00.")
+                            if not trava_oferta_ativa: motivos.append(f"Cliente já possui oferta ativa ({int(meses_desconto)} meses restantes).")
                             
-                            motivos_formatados = "\n".join([f"- {m}" for m in motivos])
-                            st.warning(f"**Motivos do bloqueio:**\n{motivos_formatados}\n\n⚠️ **É necessário seguir o fluxo de retenção por argumentação.**")
+                            st.warning("**Motivos do bloqueio:**\n" + "\n".join([f"- {m}" for m in motivos]))
+                            
+                            # ---- BOTÃO E FORMULÁRIO DE EXCEÇÃO (OA) ----
+                            with st.expander("🛠️ Solicitar Oferta em Exceção (Criar OA)"):
+                                with st.form(key=f"form_excecao_{row['Id']}"):
+                                    origem_selecionada = st.selectbox("Origem do Atendimento", LISTA_ORIGENS)
+                                    comentarios_oa = st.text_area("Comentários do Caso", placeholder="Justifique o motivo da solicitação de exceção...")
+                                    
+                                    btn_salvar_oa = st.form_submit_button("Gerar OA no Salesforce", type="primary")
+                                    
+                                    if btn_salvar_oa:
+                                        if not comentarios_oa.strip():
+                                            st.error("⚠️ É obrigatório preencher os comentários justificando a exceção.")
+                                        else:
+                                            # Chama a função que cria a OA
+                                            sucesso, retorno = criar_oa_excecao(
+                                                sf=sf_conexao, 
+                                                account_id=row['AccountId'], 
+                                                asset_id=row['Id'], 
+                                                origin=origem_selecionada, 
+                                                comentarios=comentarios_oa
+                                            )
+                                            
+                                            if sucesso:
+                                                st.success(f"✅ OA criada com sucesso! Acompanhe o caso no Salesforce.")
+                                            else:
+                                                st.error(f"❌ Erro ao criar a OA no Salesforce: {retorno}")
