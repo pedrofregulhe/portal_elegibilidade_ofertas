@@ -11,9 +11,9 @@ from simple_salesforce import Salesforce
 def conectar_sf():
     # O ideal é colocar esses dados no st.secrets do Streamlit para segurança
     return Salesforce(
-        username='seu_usuario@empresa.com', 
-        password='sua_senha', 
-        security_token='seu_token_de_seguranca'
+        username='ext-potavio@culligan.com', 
+        password='Bankai@Toshiro1025', 
+        security_token='Focq5VJHTLn6TI5ZFpJCB3ZF7'
     )
 
 sf = conectar_sf()
