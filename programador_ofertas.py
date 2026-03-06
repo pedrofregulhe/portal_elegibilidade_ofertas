@@ -27,7 +27,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Inicializa a memória do aplicativo
+# Inicializa a memória do aplicativo para a tela não piscar/sumir
 if "clientes_encontrados" not in st.session_state:
     st.session_state.clientes_encontrados = None
 if "termo_buscado" not in st.session_state:
@@ -50,6 +50,7 @@ st.markdown(estilo_customizado, unsafe_allow_html=True)
 # ==========================================
 @st.cache_resource
 def iniciar_conexao_sf():
+    """Inicia a conexão com o Salesforce de forma segura usando st.secrets"""
     try:
         sf = Salesforce(
             username=st.secrets["salesforce"]["username"],
@@ -136,9 +137,10 @@ def obter_primeiro_contato(sf, account_id):
 def criar_oa_excecao(sf, account_id, asset_id, origin, comentarios):
     contact_id = obter_primeiro_contato(sf, account_id)
     
+    # Monta os dados para a criação do Caso (OA)
     dados_caso = {
         'AccountId': account_id,
-        'AssetId': asset_id,
+        'FOZ_CodigoItem__c': asset_id, # Usando o campo customizado conforme mapeado
         'Origin': origin,
         'Type': 'OA',
         'FOZ_TipoSolicitacao__c': 'DESCONTO'
@@ -176,7 +178,7 @@ def modal_criar_oa(sf, account_id, asset_id, contrato):
                 sucesso, retorno = criar_oa_excecao(sf, account_id, asset_id, origem_selecionada, comentarios_oa)
             
             if sucesso:
-                st.success("✅ OA criada com sucesso! Verifique no Salesforce.")
+                st.success(f"✅ OA criada com sucesso! (ID: {retorno}) Verifique no Salesforce.")
                 time.sleep(2)
                 st.rerun() # Recarrega a página para fechar o modal
             else:
@@ -191,7 +193,7 @@ st.divider()
 
 sf_conexao = iniciar_conexao_sf()
 if not sf_conexao:
-    st.warning("⚠️ Aguardando configuração das credenciais no Streamlit Cloud.")
+    st.warning("⚠️ Aguardando configuração das credenciais no Streamlit Cloud ou arquivo secrets.toml.")
     st.stop() 
 
 # ==========================================
