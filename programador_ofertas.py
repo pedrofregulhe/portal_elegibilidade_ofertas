@@ -7,7 +7,7 @@ from simple_salesforce import Salesforce
 # ==========================================
 # 0. CONSTANTES 
 # ==========================================
-# Nome da Tabela/Objeto no Salesforce conforme solicitado
+# Objeto correto no Salesforce
 OBJETO_SALESFORCE = "Asset" 
 
 # ==========================================
@@ -40,17 +40,17 @@ st.markdown(estilo_customizado, unsafe_allow_html=True)
 # ==========================================
 @st.cache_resource
 def iniciar_conexao_sf():
-    """Inicia a conexão com o Salesforce com credenciais diretas"""
+    """Inicia a conexão com o Salesforce de forma segura usando st.secrets"""
     try:
         sf = Salesforce(
-            username='ext-potavio@culligan.com', 
-            password='Bankai@Toshiro1025', 
-            security_token='Focq5VJHTLn6TI5ZFpJCB3ZF7',
-            domain='login' # Mude para 'test' se essa conta for de Sandbox (ambiente de testes)
+            username=st.secrets["salesforce"]["username"],
+            password=st.secrets["salesforce"]["password"],
+            security_token=st.secrets["salesforce"]["security_token"],
+            domain=st.secrets["salesforce"].get("domain", "login")
         )
         return sf
     except Exception as e:
-        st.error(f"Erro ao conectar no Salesforce: {e}")
+        st.error(f"Erro ao conectar no Salesforce: Verifique as credenciais no st.secrets. Detalhe: {e}")
         return None
 
 def formatar_mascara_doc(termo_limpo):
@@ -64,17 +64,13 @@ def formatar_mascara_doc(termo_limpo):
 def buscar_cliente_sf(sf, termo_busca):
     """Faz a query no Salesforce considerando as variações de digitação."""
     
-    # 1. Limpa o termo (deixa só números)
     termo_limpo = re.sub(r'[^0-9]', '', termo_busca)
     
-    # Se o usuário não digitou números, aborta para não quebrar a query
     if not termo_limpo:
         return pd.DataFrame()
 
-    # 2. Prepara as variações de formatação de CNPJ/CPF
     doc_mascarado = formatar_mascara_doc(termo_limpo)
     
-    # 3. Monta a Query (SOQL) com os campos solicitados
     query = f"""
         SELECT 
             FOZ_CodigoItem__c, SerialNumber, Status, Name, AccountId, InstallDate, 
@@ -96,10 +92,8 @@ def buscar_cliente_sf(sf, termo_busca):
         if resultado['totalSize'] == 0:
             return pd.DataFrame()
         
-        # O json_normalize "achata" os dicionários do Salesforce
         df = pd.json_normalize(resultado['records'])
         
-        # Tratamento de dados padrão
         if 'InstallDate' in df.columns:
             df['InstallDate'] = pd.to_datetime(df['InstallDate'], errors='coerce')
             
@@ -141,7 +135,7 @@ st.divider()
 sf_conexao = iniciar_conexao_sf()
 
 if not sf_conexao:
-    st.info("⚠️ Não foi possível estabelecer conexão com o Salesforce. Verifique as credenciais no código.")
+    st.warning("⚠️ Aguardando configuração das credenciais no Streamlit Cloud (Secrets) para conectar ao Salesforce.")
     st.stop() 
 
 # ==========================================
@@ -186,7 +180,6 @@ with col_resultado:
                         if pd.isna(data_instalacao):
                             dias_contrato = 0
                         else:
-                            # timezone-naive para cálculo
                             data_instalacao = data_instalacao.tz_localize(None) 
                             dias_contrato = (datetime.now() - data_instalacao).days
                             
@@ -223,4 +216,3 @@ with col_resultado:
                             
                             motivos_formatados = "\n".join([f"- {m}" for m in motivos])
                             st.warning(f"**Motivos do bloqueio:**\n{motivos_formatados}\n\n⚠️ **É necessário seguir o fluxo de retenção por argumentação.**")
-
