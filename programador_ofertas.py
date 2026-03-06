@@ -8,7 +8,7 @@ from simple_salesforce import Salesforce
 # 0. CONSTANTES 
 # ==========================================
 # Nome da Tabela/Objeto no Salesforce conforme solicitado
-OBJETO_SALESFORCE = "FOZ_CodigoItem__c" 
+OBJETO_SALESFORCE = "Asset" 
 
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -223,3 +223,4 @@ with col_resultado:
                             
                             motivos_formatados = "\n".join([f"- {m}" for m in motivos])
                             st.warning(f"**Motivos do bloqueio:**\n{motivos_formatados}\n\n⚠️ **É necessário seguir o fluxo de retenção por argumentação.**")
+
