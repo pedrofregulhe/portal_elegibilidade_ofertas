@@ -137,10 +137,10 @@ def obter_primeiro_contato(sf, account_id):
 def criar_oa_excecao(sf, account_id, asset_id, origin, comentarios):
     contact_id = obter_primeiro_contato(sf, account_id)
     
-    # Monta os dados para a criação do Caso (OA)
+    # Monta os dados para a criação do Caso (OA) com o campo correto
     dados_caso = {
         'AccountId': account_id,
-        'FOZ_CodigoItem__c': asset_id, # Usando o campo customizado conforme mapeado
+        'FOZ_Asset__c': asset_id,  # O CAMPO EXATO QUE VOCÊ ENCONTROU!
         'Origin': origin,
         'Type': 'OA',
         'FOZ_TipoSolicitacao__c': 'DESCONTO'
@@ -178,7 +178,7 @@ def modal_criar_oa(sf, account_id, asset_id, contrato):
                 sucesso, retorno = criar_oa_excecao(sf, account_id, asset_id, origem_selecionada, comentarios_oa)
             
             if sucesso:
-                st.success(f"✅ OA criada com sucesso! (ID: {retorno}) Verifique no Salesforce.")
+                st.success(f"✅ OA criada com sucesso! Verifique no Salesforce. (ID Interno: {retorno})")
                 time.sleep(2)
                 st.rerun() # Recarrega a página para fechar o modal
             else:
@@ -193,7 +193,7 @@ st.divider()
 
 sf_conexao = iniciar_conexao_sf()
 if not sf_conexao:
-    st.warning("⚠️ Aguardando configuração das credenciais no Streamlit Cloud ou arquivo secrets.toml.")
+    st.warning("⚠️ Aguardando configuração das credenciais no Streamlit Cloud.")
     st.stop() 
 
 # ==========================================
