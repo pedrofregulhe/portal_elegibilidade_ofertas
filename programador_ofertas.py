@@ -76,11 +76,13 @@ def buscar_cliente_sf(sf, termo_busca):
 
     doc_mascarado = formatar_mascara_doc(termo_limpo)
     
+    # QUERY ATUALIZADA: Adicionados campos de Desconto de Retenção
     query = f"""
         SELECT 
             Id, FOZ_CodigoItem__c, SerialNumber, Status, Name, AccountId, InstallDate, 
             FOZ_Contrato_Anterior__c, FOZ_EndFranquiaForm__c, FOZ_ValorTotal__c, 
             FOZ_Periodo_de_Desconto_Restante__c, 
+            FOZ_DescontoRetencao__c, FOZ_PrazoDescontoRetencao__c, FOZ_Data_aplicacao_Desconto_Retencao__c,
             Account.Name, Account.CNPJ__c, 
             FOZ_EnderecoEntrega__r.FOZ_Logradouro__c, FOZ_EnderecoEntrega__r.Bairro__c, 
             FOZ_EnderecoEntrega__r.EndCompl__c, FOZ_EnderecoEntrega__r.FOZ_Cidade__c, 
@@ -100,8 +102,16 @@ def buscar_cliente_sf(sf, termo_busca):
         df = pd.json_normalize(resultado['records'])
         if 'InstallDate' in df.columns:
             df['InstallDate'] = pd.to_datetime(df['InstallDate'], errors='coerce')
+        
+        # Tratamento dos campos de desconto para garantir que são números
         if 'FOZ_Periodo_de_Desconto_Restante__c' in df.columns:
             df['FOZ_Periodo_de_Desconto_Restante__c'] = pd.to_numeric(df['FOZ_Periodo_de_Desconto_Restante__c'], errors='coerce').fillna(0)
+        
+        if 'FOZ_DescontoRetencao__c' in df.columns:
+            df['FOZ_DescontoRetencao__c'] = pd.to_numeric(df['FOZ_DescontoRetencao__c'], errors='coerce').fillna(0)
+            
+        if 'FOZ_PrazoDescontoRetencao__c' in df.columns:
+            df['FOZ_PrazoDescontoRetencao__c'] = pd.to_numeric(df['FOZ_PrazoDescontoRetencao__c'], errors='coerce').fillna(0)
             
         return df
     except Exception as e:
@@ -137,10 +147,9 @@ def obter_primeiro_contato(sf, account_id):
 def criar_oa_excecao(sf, account_id, asset_id, origin, comentarios):
     contact_id = obter_primeiro_contato(sf, account_id)
     
-    # Monta os dados para a criação do Caso (OA) com o campo correto
     dados_caso = {
         'AccountId': account_id,
-        'FOZ_Asset__c': asset_id,  # O CAMPO EXATO QUE VOCÊ ENCONTROU!
+        'FOZ_Asset__c': asset_id,
         'Origin': origin,
         'Type': 'OA',
         'FOZ_TipoSolicitacao__c': 'DESCONTO'
@@ -180,7 +189,7 @@ def modal_criar_oa(sf, account_id, asset_id, contrato):
             if sucesso:
                 st.success(f"✅ OA criada com sucesso! Verifique no Salesforce. (ID Interno: {retorno})")
                 time.sleep(2)
-                st.rerun() # Recarrega a página para fechar o modal
+                st.rerun() 
             else:
                 st.error(f"❌ Erro ao criar a OA: {retorno}")
 
@@ -206,7 +215,6 @@ with col_busca:
         st.markdown("#### 🔍 Consulta de Cliente")
         termo_input = st.text_input("Contrato, CPF ou CNPJ:", value=st.session_state.termo_buscado, placeholder="Ex: 1466 ou 7802827876").strip()
         
-        # Apenas salva os dados na memória ao clicar em buscar
         if st.button("Buscar no Salesforce", type="primary", use_container_width=True):
             st.session_state.termo_buscado = termo_input
             if termo_input == "":
@@ -217,7 +225,6 @@ with col_busca:
                     st.session_state.clientes_encontrados = buscar_cliente_sf(sf_conexao, termo_input)
 
 with col_resultado:
-    # Mostra os resultados baseados na memória (session_state)
     if st.session_state.clientes_encontrados is not None:
         clientes_encontrados = st.session_state.clientes_encontrados
         
@@ -248,7 +255,11 @@ with col_resultado:
                         dias_contrato = (datetime.now() - data_instalacao).days
                         
                     valor_mensalidade = float(row.get('FOZ_ValorTotal__c', 0) or 0)
-                    meses_desconto = float(row.get('FOZ_Periodo_de_Desconto_Restante__c', 0) or 0)
+                    
+                    # CAPTURANDO TODOS OS CAMPOS DE DESCONTO
+                    meses_desconto_padrao = float(row.get('FOZ_Periodo_de_Desconto_Restante__c', 0) or 0)
+                    perc_desconto_retencao = float(row.get('FOZ_DescontoRetencao__c', 0) or 0)
+                    prazo_desconto_retencao = float(row.get('FOZ_PrazoDescontoRetencao__c', 0) or 0)
 
                     m1, m2, m3 = st.columns(3)
                     with m1:
@@ -256,13 +267,23 @@ with col_resultado:
                     with m2:
                         st.metric("💲 Mensalidade", f"R$ {valor_mensalidade:.2f}")
                     with m3:
-                        st.metric("🏷️ Desconto Restante", f"{int(meses_desconto)} meses")
+                        # Exibe a métrica baseada em qual campo tem desconto ativo
+                        if prazo_desconto_retencao > 0:
+                            st.metric("🏷️ Desconto Retenção", f"{int(prazo_desconto_retencao)} meses ({int(perc_desconto_retencao)}%)")
+                        else:
+                            st.metric("🏷️ Desconto Padrão", f"{int(meses_desconto_padrao)} meses")
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     
+                    # TRAVAS DE ELEGIBILIDADE ATUALIZADAS
                     trava_tempo = dias_contrato > 90
                     trava_valor = valor_mensalidade > 70.00
-                    trava_oferta_ativa = meses_desconto <= 0
+                    
+                    # A trava de oferta ativa agora bloqueia se QUALQUER um dos descontos for maior que zero
+                    tem_desconto_padrao = meses_desconto_padrao > 0
+                    tem_desconto_retencao = prazo_desconto_retencao > 0 or perc_desconto_retencao > 0
+                    
+                    trava_oferta_ativa = not tem_desconto_padrao and not tem_desconto_retencao
 
                     if trava_tempo and trava_valor and trava_oferta_ativa:
                         st.success("✅ **Cliente Elegível para Retenção!**")
@@ -273,7 +294,12 @@ with col_resultado:
                         motivos = []
                         if not trava_tempo: motivos.append("Tempo de contrato inferior a 90 dias.")
                         if not trava_valor: motivos.append("Valor da mensalidade não atinge o mínimo de R$ 70,00.")
-                        if not trava_oferta_ativa: motivos.append(f"Cliente já possui oferta ativa ({int(meses_desconto)} meses restantes).")
+                        
+                        # Mensagens de bloqueio dinâmicas
+                        if tem_desconto_padrao: 
+                            motivos.append(f"Cliente já possui oferta ativa ({int(meses_desconto_padrao)} meses restantes).")
+                        if tem_desconto_retencao:
+                            motivos.append(f"Cliente possui Desconto de Retenção ativo ({int(perc_desconto_retencao)}% por {int(prazo_desconto_retencao)} meses).")
                         
                         st.warning("**Motivos do bloqueio:**\n" + "\n".join([f"- {m}" for m in motivos]))
                         
